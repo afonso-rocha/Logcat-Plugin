@@ -103,6 +103,7 @@ public class MyForegroundService extends Service {
                 .setSmallIcon(appIconResId);
 
         startForeground(1001, notification.build());
+        
         return super.onStartCommand(intent, flags, startId);
     }
 

@@ -11,9 +11,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
-public class OldFilesTimes extends BroadcastReceiver {
-
-    private static final String TAG = "DeleteOldFilesReceiver";
+public class OldFilesTimer extends BroadcastReceiver {
+    
     private static List<String> filesList = new ArrayList<>();
 
     @Override
@@ -48,7 +47,6 @@ public class OldFilesTimes extends BroadcastReceiver {
     //Deletes the given file
     private static void deleteFile(String filename){
         File file = new File(filename);
-
         if (file.exists()) {
             file.delete();
         }
@@ -61,6 +59,8 @@ public class OldFilesTimes extends BroadcastReceiver {
             if (!getDateFromFilename(file.getName()).isAfter(date)) {
                 filesList.add(context.getFilesDir() + "/" + file.getName());
             }
+        } else if (file.getName().contains("logcat") && file.getName().contains(".zip")) {
+            filesList.add(context.getFilesDir() + "/" + file.getName());
         }
     }
 
@@ -80,3 +80,4 @@ public class OldFilesTimes extends BroadcastReceiver {
     }
 
 }
+

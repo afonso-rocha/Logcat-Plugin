@@ -24,25 +24,32 @@ public class LogcatHistoryFile {
 
     //Generates the zip file and uploads it to blob storage
     public void generateZipFile(Context context, String vin){
-        listFilesOfDirectory(context);
-        String filepath = createZipFile(context, vin);
-        if(filepath != null) {
-            for (String file : filesList) {
-                addFileToZip(file);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                listFilesOfDirectory(context);
+                String filepath = createZipFile(context, vin);
+                if(filepath != null) {
+                    for (String file : filesList) {
+                        addFileToZip(file);
+                    }
+                    closeZipFile();
+                    uploadFileToBlob(filepath);
+                }
             }
-            closeZipFile();
-            uploadFileToBlob(filepath);
-        }
+        }).start();
     }
 
 
     //Creates the zip file that will contain the logcat files
     private String createZipFile(Context context, String vin){
+
         File appDataDir = context.getFilesDir();
         String appDataPath = appDataDir.getAbsolutePath();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss");
         String dateTimeFormated = LocalDateTime.now().format(formatter);
         String zipname = appDataPath + "/logcat_" + vin+ "_" + dateTimeFormated + ".zip";
+
         try {
             fos = new FileOutputStream(zipname);
             zos = new ZipOutputStream(fos);
@@ -53,17 +60,15 @@ public class LogcatHistoryFile {
         return zipname;
     }
 
-    //Lists the list of files of the current directory and add them to the list of files
+    //Lists the files of the current directory and add them to the list of files
     private static void listFilesOfDirectory(Context context){
 
         File directory = context.getFilesDir();
 
-        Log.e(TAG, "Diectory: " + context.getFilesDir());
-
         if (directory.exists() && directory.isDirectory()) {
             File[] files = directory.listFiles();
             for (File file : files) {
-                if (file.isFile()) {
+                if (file.isFile() & file.getPath().toLowerCase().endsWith(".txt")) {
                     filesList.add(context.getFilesDir()+ "/" + file.getName());
                 }
             }
@@ -95,8 +100,6 @@ public class LogcatHistoryFile {
         }
     }
 
-
-
     //Closes the file and zip output streams of the zip file
     private void closeZipFile(){
         if(zos != null) {
@@ -121,7 +124,6 @@ public class LogcatHistoryFile {
     private static void uploadFileToBlob(String filename){
         File file = new File(filename);
         if (file.exists()) {
-            Log.i(TAG, filename);
             new MicrosoftAzureStorageConnection().uploadZipFile(filename);
         } else {
             Log.e(TAG, "Logcat file not found");

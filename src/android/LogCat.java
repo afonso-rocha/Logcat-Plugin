@@ -5,6 +5,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 
+import com.onesignal.OneSignal;
+
 import java.io.File;
 import java.io.IOException;
 import org.apache.cordova.CallbackContext;
@@ -31,6 +33,11 @@ public class LogCat extends CordovaPlugin { //LogCatPlugin
         } else if (action.equals("uploadPlugin")) {
                 Activity activity = cordova.getActivity();
                 new LogcatHistoryFile().generateZipFile(activity, args.getString(0));
+                return true;
+        } else if (action.equals("registerDevice")) {
+                Activity activityCordova = cordova.getActivity();
+                OneSignal.initWithContext(activityCordova);
+                OneSignal.setAppId(args.getString(0));
                 return true;
         } else {
             return false;

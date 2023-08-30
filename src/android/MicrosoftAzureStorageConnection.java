@@ -7,23 +7,31 @@ import com.google.gson.Gson;
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.ProtocolException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.Base64;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.MediaType;
+import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import okio.BufferedSink;
 
 public class MicrosoftAzureStorageConnection {
 
@@ -34,6 +42,11 @@ public class MicrosoftAzureStorageConnection {
     private static String scope;
     private static final String tennantId = "0c0d142b-bb72-4eb8-a9c5-49b7cc8466af";
     private static BufferedReader reader;
+    private static final int CHUNK_SIZE = 1024 * 1024 * 4;
+    private static OkHttpClient client = new OkHttpClient.Builder()
+            .build();
+
+    //
 
     public void uploadZipFile(String filepath){
         new Thread(new Runnable() {
@@ -42,13 +55,10 @@ public class MicrosoftAzureStorageConnection {
                 File file = new File(filepath);
                 if (file.exists()) {
                     String token = getAccessToken();
-                    Gson gson = new Gson();
-                    TokenResponse response = gson.fromJson(token, TokenResponse.class);
-                    String accessBlobToken = response.getAccessToken();
-                    uploadFileToBlobStorage(accessBlobToken, file);
-                    file.delete();
+                    String accessBlobToken = processToken(token);
+                    uploadFileResumable(accessBlobToken, file);
                 } else {
-                    Log.e(TAG, "File " + file.getName() + " not found (upload to Blob storage ");
+                    Log.e(TAG, "File " + file.getName() + " not found (upload to Blob storage)");
                 }
             }
         }).start();
@@ -62,34 +72,166 @@ public class MicrosoftAzureStorageConnection {
         }
     }
 
-    public static void uploadFileToBlobStorage(String bearerToken, File file) {
-        RequestBody body = RequestBody.create(file, MediaType.parse("application/zip"));
+    //Action that will upload the file to the blob
+    public static void uploadFileResumable(String bearerToken, File file) {
 
-        OkHttpClient client = new OkHttpClient();
+        // Creates a multipart request body
+        RequestBody body = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("file", file.getName(), RequestBody.create(MediaType.parse("application/zip"), file))
+                .build();
 
-        int contentLength = 0;
-
+        // Build request with required headers
         Request request = new Request.Builder()
                 .url("https://stdaflogs.blob.core.windows.net/logcat/" + file.getName())
                 .addHeader("Authorization", "Bearer " + bearerToken)
                 .addHeader("x-ms-version", "2020-12-06")
                 .addHeader("x-ms-date", getXMsDate())
-                .addHeader("ContentLength", String.valueOf(contentLength))
                 .addHeader("x-ms-blob-type", "BlockBlob")
                 .put(body)
                 .build();
 
         try {
+            // Execute request to upload file
             Response response = client.newCall(request).execute();
 
             if (!response.isSuccessful()) {
-                Log.e(TAG, "Logact zip file was not uploaded, something went wrong");
+                Log.e(TAG, "Error uploading the file, resuming...");
+
+                if (response.code() == 308) {
+                    handle308Status(response, file);
+                } else {
+                    Log.e(TAG, "Error uploading the file, resuming...");
+                    handleTimeoutWithRetries(request, file);
+                }
             }
         } catch (IOException e) {
-            Log.e(TAG, "Something went wrong while uploading the logcat zip file to the Azure", e);
+            Log.e(TAG, "Something went wrong during resumable upload", e);
+            handleTimeoutWithRetries(request, file);
+        }
+
+    }
+
+    private static void handleTimeoutWithRetries(Request request, File file) {
+
+        Instant start = Instant.now();  // Get the current time
+
+        Duration oneWeek = Duration.of(7, ChronoUnit.DAYS);
+
+        Instant end = start.plus(oneWeek);
+
+        while (Instant.now().isBefore(end)) {
+            try {
+                request = handle401Status(request);
+                Response response = client.newCall(request).execute();
+
+                if (response.isSuccessful()) {
+                    Log.i(TAG, "Upload successful");
+                    return; // Exits loop if successful
+                } else {
+                    Log.e(TAG, "Retry failed");
+                    Thread.sleep(600000);//600000
+                    if (response.code() == 401){
+                        request = handle401Status(request);
+                    }
+                }
+            } catch (InterruptedException | IOException e) {
+                Log.e(TAG, "Retry failed - error catched: ", e);
+            }
+        }
+        Log.e(TAG, "Maximum retry attempts reached, upload failed");
+    }
+
+    //Action that handles a 401 response (Authentication failed, token no longer available)
+    private static Request handle401Status(Request request) {
+        String token = getAccessToken();
+        String accessBlobToken = processToken(token);
+        Request.Builder requestBuilder = request.newBuilder();
+        requestBuilder.header("Authorization", "Bearer " + accessBlobToken);
+        request = requestBuilder.build();
+        return request;
+    }
+
+    //Actions that handles a 308 response
+    private static void handle308Status(Response response, File file) {
+        OkHttpClient client = new OkHttpClient.Builder()
+                .callTimeout(15, TimeUnit.MINUTES)
+                .build();
+        try {
+
+            // Retrieves the range header from the response
+            String rangeHeader = response.header("Range");
+            if (rangeHeader != null) {
+
+                // Extracts the end byte of  range to start from next byte
+                String[] rangeValues = rangeHeader.replace("bytes=", "").split("-");
+                long newStartByte = Long.parseLong(rangeValues[1]) + 1; // Start from the next byte
+
+                // Creates request body for the remaining chunk
+                RequestBody chunkBody = createChunkRequestBody(file, newStartByte, CHUNK_SIZE);
+
+                // Builds new request with headers for resuming upload
+                Request newRequest = buildRequestWithHeaders(processToken(getAccessToken()), file, newStartByte, file.length() - 1, chunkBody);
+
+                Response newResponse = client.newCall(newRequest).execute();
+                if (newResponse.isSuccessful()) {
+                    Log.i(TAG, "Upload successful after 308 status");
+                } else {
+                    Log.e(TAG, "Error uploading chunk after 308 status");
+                    handleTimeoutWithRetries(newRequest, file);
+                }
+            }
+        } catch (IOException e) {
+            Log.e(TAG, "Error handling 308 status", e);
         }
     }
 
+    //Action that builds a new request with headers
+    private static Request buildRequestWithHeaders(String bearerToken, File file, long startByte, long endByte, RequestBody chunkBody) {
+        return new Request.Builder()
+                .url("https://stdaflogs.blob.core.windows.net/logcat/" + file.getName())
+                .addHeader("Authorization", "Bearer " + bearerToken)
+                .addHeader("x-ms-version", "2020-12-06")
+                .addHeader("x-ms-date", getXMsDate())
+                .addHeader("x-ms-blob-type", "BlockBlob")
+                .addHeader("Content-Range", "bytes " + startByte + "-" + endByte + "/" + file.length())
+                .put(chunkBody)
+                .build();
+    }
+
+    //Action that creates a chunk request body
+    private static RequestBody createChunkRequestBody(File file, long startByte, long chunkSize) {
+        return new RequestBody() {
+            @Override
+            public MediaType contentType() {
+                return MediaType.parse("application/zip");
+            }
+
+            @Override
+            public long contentLength() {
+                return chunkSize;
+            }
+
+            @Override
+            public void writeTo(BufferedSink sink) throws IOException {
+                try (InputStream inputStream = new FileInputStream(file)) {
+                    inputStream.skip(startByte);
+                    byte[] buffer = new byte[4096];
+                    long bytesRemaining = chunkSize;
+                    while (bytesRemaining > 0) {
+                        int bytesRead = inputStream.read(buffer);
+                        if (bytesRead == -1) {
+                            break;
+                        }
+                        sink.write(buffer, 0, (int) Math.min(bytesRead, bytesRemaining));
+                        bytesRemaining -= bytesRead;
+                    }
+                }
+            }
+        };
+    }
+
+    //Action that retrieves the OAuth2.0 access token
     private static String getAccessToken(){
         String url = "https://login.microsoftonline.com/" + tennantId + "/oauth2/V2.0/token";
 
@@ -109,12 +251,18 @@ public class MicrosoftAzureStorageConnection {
         StringBuilder response = processResponse();
         closeReader();
 
-        Log.e("AZURE CONNECTION JAVA", response.toString());
-
         return response.toString();
     }
 
-    //Creates connection to HTTP
+    //Processes the token response
+    private static String processToken(String accessToken){
+        Gson gson = new Gson();
+        TokenResponse response = gson.fromJson(accessToken, TokenResponse.class);
+        String accessBlobToken = response.getAccessToken();
+        return accessBlobToken;
+    }
+
+    //Creates HTTP connection
     private static HttpURLConnection connectToHTTP(String url, String encodedCredentials){
         HttpURLConnection connection = null;
         try {
@@ -205,4 +353,3 @@ public class MicrosoftAzureStorageConnection {
     }
 
 }
-

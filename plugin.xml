@@ -7,13 +7,17 @@
 		<clobbers target="plugin.logcat"/>
 	</js-module>
 	<platform name="android">
-	
+
+		<framework src="com.onesignal:OneSignal:[4.0.0, 4.99.99]" />
+		<framework src="build-extras-onesignal.gradle" custom="true" type="gradleReference" />
+  
 		<config-file target="res/xml/config.xml" parent="/*">
 			<feature name="LogCat">
 				<param name="android-package" value="org.apache.cordova.logcat.LogCat"/>
 				<param name="onload" value="true"/>
 			</feature>
 		</config-file>
+		
 		<config-file target="AndroidManifest.xml" parent="/*">
 				<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 				<uses-permission android:name="android.permission.READ_LOGS" tools:ignore="ProtectedPermissions" xmlns:tools="http://schemas.android.com/tools" />
@@ -25,26 +29,34 @@
 		</config-file>
 		
 		<config-file target="AndroidManifest.xml" parent="/manifest/application">
+			
+        			<meta-data android:name="com.onesignal.NotificationServiceExtension"
+            				android:value="org.apache.cordova.logcat.NotificationService" />
+			
 				<service android:name="org.apache.cordova.logcat.MyForegroundService" android:foregroundServiceType="dataSync"/>
+			
 				<receiver android:name="org.apache.cordova.logcat.MyBroadcastReceiver" android:exported="true">
 					<intent-filter>
 						<action android:name="android.intent.action.BOOT_COMPLETED"/>
 						<action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
 					</intent-filter>
 				</receiver>
-			        <receiver android:name="org.apache.cordova.logcat.OldFilesTimes" android:exported="true">
+			
+			        <receiver android:name="org.apache.cordova.logcat.OldFilesTimer" android:exported="true">
             				<intent-filter>
-                				<action android:name="android.intent.action.DATE_CHANGED" />
+                				<action android:name="android.intent.action.DATE_CHANGED"/>
             				</intent-filter>
         			</receiver>
+
 		</config-file>
 		
 		<source-file src="src/android/LogCat.java" target-dir="src/org/apache/cordova/logcat"/>
 		<source-file src="src/android/MyForegroundService.java" target-dir="src/org/apache/cordova/logcat"/>
 		<source-file src="src/android/MyBroadcastReceiver.java" target-dir="src/org/apache/cordova/logcat"/>
-		<source-file src="src/android/OldFilesTimes.java" target-dir="src/org/apache/cordova/logcat"/>
+		<source-file src="src/android/OldFilesTimer.java" target-dir="src/org/apache/cordova/logcat"/>
 		<source-file src="src/android/MicrosoftAzureStorageConnection.java" target-dir="src/org/apache/cordova/logcat"/>
 		<source-file src="src/android/LogcatHistoryFile.java" target-dir="src/org/apache/cordova/logcat"/>
-
+		<source-file src="src/android/NotificationService.java" target-dir="src/org/apache/cordova/logcat"/>
+		
 	</platform>
 </plugin>

@@ -17,7 +17,7 @@ public class OldFilesTimer extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (intent.getAction().equals(Intent.ACTION_DATE_CHANGED)) { //check on documentation if allows being in AM
+        if (intent.getAction().equals(Intent.ACTION_DATE_CHANGED)) {
             deleteOldFiles(context);
         }
     }

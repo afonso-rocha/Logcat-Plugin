@@ -1,71 +1,57 @@
-<?xml version='1.0' encoding='utf-8'?>
-<plugin id="cordova-plugin-logcat" version="1.0.0" xmlns="http://apache.org/cordova/ns/plugins/1.0" xmlns:tools="http://schemas.android.com/tools">
-	<name>Logcat Plugin</name>
-	<description>A Cordova plugin to generate logs in Android</description>
-	<license>MIT</license>
-	<js-module src="www/OneSignalPlugin.js" name="OneSignalPlugin">
-		<clobbers target="OneSignal"/>
-	</js-module>
-	
-	<platform name="android">
+package org.apache.cordova.logcat;
 
-		<framework src="com.onesignal:OneSignal:[4.0.0, 4.99.99]" />
-		<framework src="build-extras-onesignal.gradle" custom="true" type="gradleReference" />
+import android.app.ActivityManager;
+import android.content.Context;
+import android.content.Intent;
+import android.os.Bundle;
 
-    		<!--<hook type="before_plugin_add" src="hooks/after_plugin_install.js" /> :-->
-  
-		<config-file target="res/xml/config.xml" parent="/*">
-			<feature name="LogCat">
-				<param name="android-package" value="org.apache.cordova.logcat.LogCat"/>
-				<param name="onload" value="true"/>
-			</feature>
-		</config-file>
-		
-		<config-file target="AndroidManifest.xml" parent="/*">
-				<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-				<uses-permission android:name="android.permission.READ_LOGS" tools:ignore="ProtectedPermissions" xmlns:tools="http://schemas.android.com/tools" />
-				<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
-				<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-				<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-				<uses-permission android:name="android.permission.PACKAGE_REPLACED" />
-			    	<uses-permission android:name="android.permission.INTERNET" />
-		</config-file>
-		
-		<config-file target="AndroidManifest.xml" parent="/manifest/application">
-			
-        			<meta-data android:name="com.onesignal.NotificationServiceExtension"
-            				android:value="org.apache.cordova.logcat.NotificationService" />
+import com.onesignal.OneSignal;
 
-				<service android:name="org.apache.cordova.logcat.PushNotificationsDealer" android:exported="true">
-           	 			<intent-filter>
-                				<action android:name="com.google.firebase.MESSAGING_EVENT" />
-            				</intent-filter>
-        			</service>
-			
-				<service android:name="org.apache.cordova.logcat.MyForegroundService" android:foregroundServiceType="dataSync"/>
-			
-				<receiver android:name="org.apache.cordova.logcat.MyBroadcastReceiver" android:exported="true">
-					<intent-filter>
-						<action android:name="android.intent.action.BOOT_COMPLETED"/>
-						<action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
-					</intent-filter>
-				</receiver>
-			
-			        <receiver android:name="org.apache.cordova.logcat.OldFilesTimes" android:exported="true">
-            				<intent-filter>
-                				<action android:name="android.intent.action.DATE_CHANGED"/>
-            				</intent-filter>
-        			</receiver>
+import java.io.File;
+import java.io.IOException;
+import org.apache.cordova.CallbackContext;
+import org.apache.cordova.CordovaPlugin;
+import org.apache.cordova.CordovaWebView;
+import org.json.JSONArray;
+import org.json.JSONException;
+import android.os.Environment;
+import android.app.Activity;
+import android.util.Log;
 
-		</config-file>
-		
-		<source-file src="src/android/LogCat.java" target-dir="src/org/apache/cordova/logcat"/>
-		<source-file src="src/android/MyForegroundService.java" target-dir="src/org/apache/cordova/logcat"/>
-		<source-file src="src/android/MyBroadcastReceiver.java" target-dir="src/org/apache/cordova/logcat"/>
-		<source-file src="src/android/OldFilesTimes.java" target-dir="src/org/apache/cordova/logcat"/>
-		<source-file src="src/android/MicrosoftAzureStorageConnection.java" target-dir="src/org/apache/cordova/logcat"/>
-		<source-file src="src/android/LogcatHistoryFile.java" target-dir="src/org/apache/cordova/logcat"/>
-		<source-file src="src/android/NotificationService.java" target-dir="src/org/apache/cordova/logcat"/>
-		
-	</platform>
-</plugin>
+public class LogCat extends CordovaPlugin { //LogCatPlugin
+
+    private static final String TAG = "LogCatPlugin";
+
+    public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
+        if (action.equals("sendLogs")) {
+            if(!foregroundServiceRunning()) {
+                Activity activity = cordova.getActivity();
+                Intent serviceIntent = new Intent(activity, MyForegroundService.class);
+                activity.getApplicationContext().startForegroundService(serviceIntent);
+            }
+            return true;
+        } else if (action.equals("registerDevice")) {
+                Activity activityCordova = cordova.getActivity();
+                OneSignal.initWithContext(activityCordova);
+                OneSignal.setAppId(args.getString(0));
+                return true;
+        } else {
+            return false;
+        }
+    }        //create a new Intent to send the logs
+             //Intent serviceIntent = new Intent(cordova.getActivity(), MyForegroundService.class);
+             //serviceIntent.setaction(""); //string of the action that want to execute
+
+    //Checks if the foreground service is running
+    public boolean foregroundServiceRunning() {
+        Context context = cordova.getActivity().getApplicationContext();
+        ActivityManager activityManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        for (ActivityManager.RunningServiceInfo service : activityManager.getRunningServices(Integer.MAX_VALUE)) {
+            if (MyForegroundService.class.getName().equals(service.service.getClassName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+}

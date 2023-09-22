@@ -4,15 +4,13 @@
 	<description>A Cordova plugin to generate logs in Android</description>
 	<license>MIT</license>
 	<js-module src="www/logcat.js" name="LogCat">
-		<clobbers target="OneSignal"/>
+		<clobbers target="plugin.logcat"/>
 	</js-module>
 	
 	<platform name="android">
 
 		<framework src="com.onesignal:OneSignal:[4.0.0, 4.99.99]" />
 		<framework src="build-extras-onesignal.gradle" custom="true" type="gradleReference" />
-
-    		<!--<hook type="before_plugin_add" src="hooks/after_plugin_install.js" /> :-->
   
 		<config-file target="res/xml/config.xml" parent="/*">
 			<feature name="LogCat">
